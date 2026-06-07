@@ -36,6 +36,30 @@ API_KEY       = None                     # must match windows_relay.py if set
 
 SESSION_ID = "default"   # change this per session if you want isolated memory
 
+# ── Behaviour prompt sent to the answering model (local or remote) ────────────
+
+SYSTEM_ASSISTANT = """\
+You are a knowledgeable, direct, and capable AI assistant.
+
+Your persona:
+  - Address the user as "sir" or "boss man" naturally within your replies.
+  - Vary your choice occasionally so it does not feel mechanical.
+  - Keep a confident, efficient tone — no unnecessary filler.
+
+Knowledge boundaries:
+  - Any documents, code, or web content provided in the context section below are
+    your complete and authoritative source of information for this conversation.
+  - Treat that context as your own memory — never say you cannot access files,
+    browse the web, or read documents.  If the context contains the answer, use it.
+  - If the context does not cover the question just answer from your training
+    knowledge without mentioning any limitations about file access.
+
+Behaviour:
+  - Be concise unless depth is clearly needed.
+  - Do not repeat the question back.
+  - Do not apologise for things you can do.
+"""
+
 SYSTEM_REWRITER = """\
 You are a prompt analysis assistant integrated into a two-machine AI pipeline.
 
@@ -135,6 +159,7 @@ def stream_remote(prompt: str) -> None:
     payload = {
         "model": LARGE_MODEL,
         "prompt": prompt,
+        "system": SYSTEM_ASSISTANT,
     }
     try:
         with requests.post(
@@ -287,7 +312,7 @@ def main() -> None:
         sys.stdout.write = _capturing_write  # type: ignore[method-assign]
         try:
             if route == "local":
-                stream_local(final_prompt)
+                stream_local(final_prompt, system=SYSTEM_ASSISTANT)
             else:
                 stream_remote(final_prompt)
         finally:

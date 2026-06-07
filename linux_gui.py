@@ -31,8 +31,9 @@ class NodeAgentGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Node Agent Chat")
-        self.root.geometry("1120x720")
+        self.root.geometry("1520x720")
         self.root.configure(bg="#1f1f1d")
+        self.debug_visible = True
 
         self.worker_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self.is_busy = False
@@ -121,10 +122,60 @@ class NodeAgentGUI:
         tk.Button(sidebar, text="Index Web URL", command=self.index_web, **button_style).pack(fill=tk.X, padx=12, pady=6)
         tk.Button(sidebar, text="Refresh DB Stats", command=self._refresh_stats, **button_style).pack(fill=tk.X, padx=12, pady=6)
         tk.Button(sidebar, text="Clear Chat", command=self.clear_chat, **button_style).pack(fill=tk.X, padx=12, pady=6)
+        tk.Button(sidebar, text="Toggle Debug", command=self.toggle_debug, **button_style).pack(fill=tk.X, padx=12, pady=6)
 
         # Main area
         main = tk.Frame(self.root, bg="#22211f")
         main.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Debug panel (right side)
+        self.debug_frame = tk.Frame(self.root, bg="#171715", width=360)
+        self.debug_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        self.debug_frame.pack_propagate(False)
+
+        tk.Label(
+            self.debug_frame,
+            text="Model Debug",
+            fg="#c8a86b",
+            bg="#171715",
+            font=("Helvetica", 12, "bold"),
+            anchor="w",
+            padx=10,
+            pady=10,
+        ).pack(fill=tk.X)
+
+        tk.Button(
+            self.debug_frame,
+            text="Clear",
+            command=self.clear_debug,
+            bg="#2b2a28",
+            fg="#c0beb6",
+            relief=tk.FLAT,
+            bd=0,
+            font=("Helvetica", 9),
+            padx=8,
+            pady=4,
+        ).pack(anchor="e", padx=8)
+
+        self.debug_log = scrolledtext.ScrolledText(
+            self.debug_frame,
+            wrap=tk.WORD,
+            bg="#171715",
+            fg="#b8cfa8",
+            insertbackground="#b8cfa8",
+            relief=tk.FLAT,
+            bd=0,
+            padx=10,
+            pady=8,
+            font=("Consolas", 9),
+            state=tk.NORMAL,
+        )
+        self.debug_log.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 8))
+
+        self.debug_log.tag_config("section", foreground="#c8a86b", font=("Consolas", 9, "bold"))
+        self.debug_log.tag_config("label",   foreground="#8ec5ff", font=("Consolas", 9, "bold"))
+        self.debug_log.tag_config("value",   foreground="#b8cfa8", font=("Consolas", 9))
+        self.debug_log.tag_config("muted",   foreground="#666460", font=("Consolas", 9, "italic"))
 
         self.chat = scrolledtext.ScrolledText(
             main,
@@ -181,6 +232,23 @@ class NodeAgentGUI:
         self.send_btn.pack(side=tk.LEFT, padx=(10, 0))
 
         self._add_system("Welcome. Ask anything and I will route local vs remote automatically.")
+        self._debug_append("section", "Debug panel ready\n")
+        self._debug_append("muted", f"Local:  {core.SMALL_MODEL}\nRemote: {core.LARGE_MODEL}\nRelay:  {core.WINDOWS_RELAY}\n")
+
+    def toggle_debug(self) -> None:
+        if self.debug_visible:
+            self.debug_frame.pack_forget()
+            self.debug_visible = False
+        else:
+            self.debug_frame.pack(side=tk.RIGHT, fill=tk.Y)
+            self.debug_visible = True
+
+    def clear_debug(self) -> None:
+        self.debug_log.delete("1.0", tk.END)
+
+    def _debug_append(self, tag: str, text: str) -> None:
+        self.debug_log.insert(tk.END, text, tag)
+        self.debug_log.see(tk.END)
 
     def _add_system(self, text: str) -> None:
         self.chat.insert(tk.END, f"\n{text}\n", "system")
@@ -253,7 +321,7 @@ class NodeAgentGUI:
                     break
 
     def _stream_remote(self, prompt: str):
-        payload = {"model": core.LARGE_MODEL, "prompt": prompt}
+        payload = {"model": core.LARGE_MODEL, "prompt": prompt, "system": core.SYSTEM_ASSISTANT}
         headers = {"Content-Type": "application/json"}
         if core.API_KEY:
             headers["X-API-Key"] = core.API_KEY
@@ -282,18 +350,33 @@ class NodeAgentGUI:
 
     def _run_pipeline(self, user_input: str) -> None:
         try:
+            # ── Step 1: small model rewrites the prompt ───────────────────────
+            self.worker_queue.put(("debug", "section", "── Step 1: Prompt Analysis ──────────────\n"))
+            self.worker_queue.put(("debug", "label",   "User → Small Model:\n"))
+            self.worker_queue.put(("debug", "value",   user_input + "\n\n"))
+
             route, optimised_prompt = core.analyse_prompt(user_input)
             route_label = "LOCAL" if route == "local" else "REMOTE"
+
+            self.worker_queue.put(("debug", "label",   f"Small Model → Route: "))
+            self.worker_queue.put(("debug", "value",   f"{route_label}\n"))
+            self.worker_queue.put(("debug", "label",   "Small Model → Rewritten prompt:\n"))
+            self.worker_queue.put(("debug", "value",   optimised_prompt + "\n\n"))
             self.worker_queue.put(("system", f"Routing: {route_label}"))
 
+            # ── Step 2: RAG retrieval ─────────────────────────────────────────
+            self.worker_queue.put(("debug", "section", "── Step 2: Context Retrieval ────────────\n"))
             context = ""
             try:
                 context = storage.build_context(user_input)
             except Exception as exc:
                 self.worker_queue.put(("system", f"Storage warning: {exc}"))
+                self.worker_queue.put(("debug", "muted", f"Storage error: {exc}\n"))
 
             if context:
                 self.worker_queue.put(("system", f"Retrieved context: {len(context)} chars"))
+                self.worker_queue.put(("debug", "label",  f"Retrieved {len(context)} chars from DB\n"))
+                self.worker_queue.put(("debug", "muted",  context[:600] + ("..." if len(context) > 600 else "") + "\n\n"))
                 final_prompt = (
                     "Use the following retrieved context to help answer the question.\n"
                     "If the context is not relevant, ignore it.\n\n"
@@ -301,13 +384,24 @@ class NodeAgentGUI:
                     f"Question:\n{optimised_prompt}"
                 )
             else:
+                self.worker_queue.put(("debug", "muted", "No context retrieved\n\n"))
                 final_prompt = optimised_prompt
+
+            # ── Step 3: generation ────────────────────────────────────────────
+            target = core.SMALL_MODEL if route == "local" else core.LARGE_MODEL
+            dest   = "local Ollama" if route == "local" else f"Windows relay → {target}"
+            self.worker_queue.put(("debug", "section", "── Step 3: Generation ───────────────────\n"))
+            self.worker_queue.put(("debug", "label",   f"Sending to: {dest}\n"))
+            self.worker_queue.put(("debug", "label",   "Final prompt sent:\n"))
+            preview = final_prompt[:500] + ("..." if len(final_prompt) > 500 else "")
+            self.worker_queue.put(("debug", "muted",   preview + "\n\n"))
+            self.worker_queue.put(("debug", "label",   f"{target} → streaming response:\n"))
 
             self.worker_queue.put(("assistant_header", ""))
             answer_parts: list[str] = []
 
-            stream_fn = self._stream_local if route == "local" else self._stream_remote
-            for token in stream_fn(final_prompt):
+            system = core.SYSTEM_ASSISTANT
+            for token in (self._stream_local(final_prompt, system=system) if route == "local" else self._stream_remote(final_prompt)):
                 answer_parts.append(token)
                 self.worker_queue.put(("token", token))
 
@@ -318,26 +412,58 @@ class NodeAgentGUI:
                 except Exception:
                     pass
 
+            self.worker_queue.put(("debug", "section", "\n── Done ─────────────────────────────────\n"))
             self.worker_queue.put(("done", ""))
             self.worker_queue.put(("refresh_stats", ""))
 
-        except requests.exceptions.ConnectionError:
-            self.worker_queue.put(("error", "Could not reach Ollama or relay server."))
+        except requests.exceptions.ConnectionError as exc:
+            failed_url = ""
+            req = getattr(exc, "request", None)
+            if req is not None:
+                failed_url = getattr(req, "url", "") or ""
+
+            if "11434" in failed_url:
+                msg = (
+                    f"Could not reach local Ollama at {core.LOCAL_OLLAMA}. "
+                    "Start Ollama with: ollama serve"
+                )
+            elif "4648" in failed_url or "/generate" in failed_url or "/health" in failed_url:
+                msg = (
+                    f"Could not reach Windows relay at {core.WINDOWS_RELAY}. "
+                    "Confirm windows_relay.py is running and firewall allows port 4648."
+                )
+            else:
+                msg = (
+                    "Network error while contacting model service. "
+                    f"Local: {core.LOCAL_OLLAMA} | Relay: {core.WINDOWS_RELAY}"
+                )
+
+            self.worker_queue.put(("error", msg))
+            self.worker_queue.put(("debug", "section", "\n── Network Error ────────────────\n"))
+            self.worker_queue.put(("debug", "value", msg + "\n"))
         except Exception as exc:
             self.worker_queue.put(("error", str(exc)))
+            self.worker_queue.put(("debug", "section", "\n── Exception ────────────────────\n"))
+            self.worker_queue.put(("debug", "value", str(exc) + "\n"))
 
     def _drain_queue(self) -> None:
         try:
             while True:
-                event, payload = self.worker_queue.get_nowait()
-                if event == "assistant_header":
+                item = self.worker_queue.get_nowait()
+                event = item[0]
+                if event == "debug":
+                    _, tag, text = item
+                    self._debug_append(tag, text)
+                elif event == "assistant_header":
                     self._add_assistant_header()
                 elif event == "token":
-                    self._append_assistant_token(payload)
+                    self._append_assistant_token(item[1])
                 elif event == "system":
-                    self._add_system(payload)
+                    self._add_system(item[1])
                 elif event == "error":
-                    self._add_system(f"Error: {payload}")
+                    self._add_system(f"Error: {item[1]}")
+                    self._debug_append("section", f"\n── Error ─────────────────────────────────\n")
+                    self._debug_append("value", item[1] + "\n")
                     self._set_busy(False)
                 elif event == "done":
                     self._finish_assistant_message()
