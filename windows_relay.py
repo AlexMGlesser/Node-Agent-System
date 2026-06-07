@@ -18,7 +18,7 @@ Requirements:
 Usage:
   python windows_relay.py
 
-Then on the Linux machine set WINDOWS_RELAY = "http://<this-PC's-IP>:5000"
+Then on the Linux machine set WINDOWS_RELAY = "http://<this-PC's-IP>:4648"
 
 Optional: set API_KEY below to require a shared secret.
          Set the same key in linux_node.py to enable authentication.
@@ -33,7 +33,7 @@ import requests
 
 OLLAMA_URL    = "http://localhost:11434"  # local Ollama instance
 DEFAULT_MODEL = "qwen3:30b"              # large model to use when none specified
-PORT          = 5000                     # port this server listens on
+PORT          = 4648                     # port this server listens on
 API_KEY       = None                     # set to a string to enable auth, e.g. "mysecretkey"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ def health():
     """
     Returns the server status and the list of models available in Ollama.
     Useful for verifying network connectivity from the Linux node:
-        curl http://<windows-ip>:5000/health
+        curl http://<windows-ip>:4648/health
     """
     try:
         resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)

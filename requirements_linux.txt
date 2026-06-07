@@ -1,4 +1,6 @@
 # Linux node (2060 machine)
+# System package needed for linux_gui.py:
+#   sudo apt install python3-tk
 requests>=2.31.0
 chromadb>=0.5.0
 beautifulsoup4>=4.12.0   # optional — for cleaner web page scraping

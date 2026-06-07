@@ -29,7 +29,7 @@ import storage
 SMALL_MODEL   = "qwen3:4b"               # model running locally on this PC
 LARGE_MODEL   = "qwen3:30b"              # model running on the Windows PC
 LOCAL_OLLAMA  = "http://localhost:11434" # local Ollama API endpoint
-WINDOWS_RELAY = "http://192.168.1.50:5000"  # Windows PC IP + relay port
+WINDOWS_RELAY = "http://192.168.1.50:4648"  # Windows PC IP + relay port
 API_KEY       = None                     # must match windows_relay.py if set
 
 # ── Prompt used to classify + rewrite user requests ──────────────────────────
