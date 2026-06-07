@@ -1,0 +1,4 @@
+# Linux node (2060 machine)
+requests>=2.31.0
+chromadb>=0.5.0
+beautifulsoup4>=4.12.0   # optional — for cleaner web page scraping
