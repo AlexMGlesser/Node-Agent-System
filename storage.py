@@ -298,9 +298,10 @@ def query_memory(query: str, k: int = TOP_K) -> list[dict]:
 def query_all(query: str, k: int = TOP_K) -> dict[str, list[dict]]:
     """
     Search all four collections and return a combined dict.
-    Only returns results whose distance is below a reasonable threshold.
+
+    Note: distance scales vary by embedding model and index metric. Returning
+    top-k hits per collection is more reliable than applying a global cutoff.
     """
-    threshold = 1.0  # cosine distance — lower is more similar
     results: dict[str, list[dict]] = {}
     for label, fn in [
         ("documents", query_documents),
@@ -308,7 +309,7 @@ def query_all(query: str, k: int = TOP_K) -> dict[str, list[dict]]:
         ("web",       query_web),
         ("memory",    query_memory),
     ]:
-        hits = [r for r in fn(query, k) if r["distance"] < threshold]
+        hits = fn(query, k)
         if hits:
             results[label] = hits
     return results
